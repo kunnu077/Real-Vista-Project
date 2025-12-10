@@ -39,7 +39,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const uri = process.env.MONGODB_URI || "mongodb+srv://kunalkushwah7104:kunalkushwah7104@cluster0.tbo6rzc.mongodb.net/flipr_app?retryWrites=true&w=majority";
+const uri = process.env.MONGODB_URI || "mongodb+srv://nileshpatidar1345:nilesh123@quickblog.bcjmgzh.mongodb.net "
 
 // Track DB connection state and provide an in-memory fallback for development
 let isDbConnected = false;
