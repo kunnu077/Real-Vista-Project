@@ -41,6 +41,49 @@ app.use(express.urlencoded({ extended: true }));
 
 const uri = process.env.MONGODB_URI || "mongodb+srv://kunalkushwah7104:kunalkushwah7104@cluster0.tbo6rzc.mongodb.net/flipr_app?retryWrites=true&w=majority";
 
+// Track DB connection state and provide an in-memory fallback for development
+let isDbConnected = false;
+const fallbackStores = {
+  projects: [],
+  clients: [],
+  contacts: [],
+  subscribers: [],
+};
+
+const seedFallback = () => {
+  if (fallbackStores.projects.length === 0) {
+    fallbackStores.projects = [
+      {
+        _id: "fallback-1",
+        name: "Consultation",
+        description: "Personalized guidance to prepare listings for market success.",
+        image: "https://images.unsplash.com/photo-1521791136064-7986c2920216?auto=format&fit=crop&w=800&q=80",
+        createdAt: new Date().toISOString(),
+      },
+      {
+        _id: "fallback-2",
+        name: "Design",
+        description: "Interior refresh focused on light, flow, and clean staging.",
+        image: "https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=800&q=80",
+        createdAt: new Date().toISOString(),
+      },
+    ];
+  }
+  if (fallbackStores.clients.length === 0) {
+    fallbackStores.clients = [
+      {
+        _id: "fallback-c1",
+        name: "Rowhan Smith",
+        designation: "Founder",
+        description: "Process felt simple from consult to closing.",
+        image: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=400&q=80",
+        createdAt: new Date().toISOString(),
+      },
+    ];
+  }
+  // contacts and subscribers start empty
+};
+
 const projectSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
@@ -86,12 +129,14 @@ app.get("/api/health", (_, res) => {
   res.json({ 
     ok: true, 
     timestamp: new Date().toISOString(),
-    mongodb: mongoose.connection.readyState === 1 ? "connected" : "disconnected"
+    mongodb: isDbConnected ? "connected" : "disconnected",
+    mode: isDbConnected ? "full" : "degraded"
   });
 });
 
 app.get("/api/projects", async (_, res) => {
   try {
+    if (!isDbConnected) return res.json(fallbackStores.projects);
     const data = await Project.find().sort({ createdAt: -1 });
     res.json(data);
   } catch (error) {
@@ -104,6 +149,11 @@ app.post("/api/projects", async (req, res) => {
   try {
     const { name, description, image } = req.body;
     if (!name || !description || !image) return res.status(400).json({ message: "Missing fields" });
+    if (!isDbConnected) {
+      const entry = { _id: `fallback-p-${Date.now()}`, name, description, image, createdAt: new Date().toISOString() };
+      fallbackStores.projects.unshift(entry);
+      return res.status(201).json(entry);
+    }
     const entry = await Project.create({ name, description, image });
     res.status(201).json(entry);
   } catch (error) {
@@ -117,6 +167,12 @@ app.delete("/api/projects/:id", async (req, res) => {
   try {
     const { id } = req.params;
     if (!id) return res.status(400).json({ message: "Missing project id" });
+    if (!isDbConnected) {
+      const idx = fallbackStores.projects.findIndex((p) => p._id === id);
+      if (idx === -1) return res.status(404).json({ message: "Project not found" });
+      const deleted = fallbackStores.projects.splice(idx, 1)[0];
+      return res.json({ message: "Project deleted", id: deleted._id });
+    }
     const deleted = await Project.findByIdAndDelete(id);
     if (!deleted) return res.status(404).json({ message: "Project not found" });
     res.json({ message: "Project deleted", id: deleted._id });
@@ -128,6 +184,7 @@ app.delete("/api/projects/:id", async (req, res) => {
 
 app.get("/api/clients", async (_, res) => {
   try {
+    if (!isDbConnected) return res.json(fallbackStores.clients);
     const data = await Client.find().sort({ createdAt: -1 });
     res.json(data);
   } catch (error) {
@@ -140,6 +197,11 @@ app.post("/api/clients", async (req, res) => {
   try {
     const { name, designation, description, image } = req.body;
     if (!name || !designation || !description || !image) return res.status(400).json({ message: "Missing fields" });
+    if (!isDbConnected) {
+      const entry = { _id: `fallback-c-${Date.now()}`, name, designation, description, image, createdAt: new Date().toISOString() };
+      fallbackStores.clients.unshift(entry);
+      return res.status(201).json(entry);
+    }
     const entry = await Client.create({ name, designation, description, image });
     res.status(201).json(entry);
   } catch (error) {
@@ -150,6 +212,10 @@ app.post("/api/clients", async (req, res) => {
 
 app.get("/api/contacts", async (_, res) => {
   try {
+    if (!isDbConnected) {
+      console.log(`Fetched ${fallbackStores.contacts.length} contacts (fallback)`);
+      return res.json(fallbackStores.contacts);
+    }
     const data = await Contact.find().sort({ createdAt: -1 });
     console.log(`Fetched ${data.length} contacts`);
     res.json(data);
@@ -168,7 +234,12 @@ app.post("/api/contacts", async (req, res) => {
       console.log("Missing fields in contact submission");
       return res.status(400).json({ message: "Missing fields" });
     }
-    
+    if (!isDbConnected) {
+      const entry = { _id: `fallback-contact-${Date.now()}`, fullName, email, phone, city, createdAt: new Date().toISOString() };
+      fallbackStores.contacts.unshift(entry);
+      console.log("Contact (fallback) created:", entry._id);
+      return res.status(201).json(entry);
+    }
     const entry = await Contact.create({ fullName, email, phone, city });
     console.log("Contact created successfully:", entry._id);
     res.status(201).json(entry);
@@ -180,6 +251,7 @@ app.post("/api/contacts", async (req, res) => {
 
 app.get("/api/subscribers", async (_, res) => {
   try {
+    if (!isDbConnected) return res.json(fallbackStores.subscribers);
     const data = await Subscriber.find().sort({ createdAt: -1 });
     res.json(data);
   } catch (error) {
@@ -192,6 +264,13 @@ app.post("/api/subscribers", async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: "Missing fields" });
+    if (!isDbConnected) {
+      const existing = fallbackStores.subscribers.find((s) => s.email === email);
+      if (existing) return res.status(200).json(existing);
+      const entry = { _id: `fallback-s-${Date.now()}`, email, createdAt: new Date().toISOString() };
+      fallbackStores.subscribers.unshift(entry);
+      return res.status(201).json(entry);
+    }
     const existing = await Subscriber.findOne({ email });
     if (existing) return res.status(200).json(existing);
     const entry = await Subscriber.create({ email });
@@ -284,6 +363,7 @@ const mongooseOptions = {
 mongoose
   .connect(uri, mongooseOptions)
   .then(async () => {
+    isDbConnected = true;
     console.log("✅ Connected to MongoDB");
     console.log(`📦 Database: flipr_app`);
     try {
@@ -300,13 +380,21 @@ mongoose
     });
   })
   .catch((error) => {
+    // Log the error but do not crash the server — start in degraded mode
     console.error("❌ MongoDB connection error:", error.message);
     console.error("Full error:", error);
     console.log("\n💡 Troubleshooting tips:");
     console.log("   1. Check your MongoDB connection string");
     console.log("   2. Verify your internet connection");
     console.log("   3. Check if MongoDB Atlas IP whitelist allows your IP");
-    process.exit(1);
+
+    // Seed fallback data and start server so frontend health checks and static endpoints work
+    seedFallback();
+    const port = process.env.PORT || 5000;
+    app.listen(port, "0.0.0.0", () => {
+      console.log(`⚠️ Server started WITHOUT MongoDB on http://localhost:${port} (degraded mode)`);
+      console.log(`📡 API health check: http://localhost:${port}/api/health`);
+    });
   });
 
 // Graceful shutdown
